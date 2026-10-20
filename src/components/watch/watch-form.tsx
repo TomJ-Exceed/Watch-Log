@@ -10,6 +10,7 @@ import { Input, Label, NativeSelect, Textarea } from "@/components/ui/input";
 import { deletePhoto, setPrimaryPhoto, uploadPhotos } from "./photo-actions";
 import { cn } from "@/lib/utils";
 import { CATALOG_BRANDS, catalogFor } from "@/lib/catalog";
+import { Combobox } from "@/components/ui/combobox";
 
 type PhotoWithUrl = WatchPhoto & { url: string | null };
 type Props = {
@@ -207,45 +208,43 @@ export function WatchForm({ userId, watch, photos = [], dealers: initialDealers,
 
       <Section title="Watch">
         <Field label="Brand *">
-          <Input required list="brands" value={str(f.brand)} onChange={set("brand")} placeholder="Rolex" />
-          <datalist id="brands">{allBrands.map((b) => <option key={b} value={b} />)}</datalist>
+          <Combobox
+            required
+            value={str(f.brand)}
+            onValueChange={(brand) => setF((p) => ({ ...p, brand }))}
+            options={allBrands}
+            placeholder="Rolex"
+          />
         </Field>
         <Field label="Model *">
-          <Input
+          <Combobox
             required
-            list="models"
             value={str(f.model)}
-            onChange={(e) => {
-              const model = e.target.value;
+            onValueChange={(model) => {
               const hit = refs.filter((r) => r.model === model);
               setF((p) => ({ ...p, model, ...(hit.length === 1 && !str(p.reference) ? { reference: hit[0].reference } : {}) }));
             }}
+            options={models}
             placeholder="Submariner Date"
           />
-          <datalist id="models">{models.map((m) => <option key={m} value={m} />)}</datalist>
         </Field>
         <Field label="Reference">
-          <Input
-            list="references"
+          <Combobox
             value={str(f.reference)}
-            onChange={(e) => {
-              const reference = e.target.value;
+            onValueChange={(reference) => {
               const hit = refs.find((r) => r.reference === reference);
               setF((p) => ({ ...p, reference, ...(hit && !str(p.model) ? { model: hit.model } : {}) }));
             }}
+            options={refs
+              .filter((r) => !str(f.model) || r.model === str(f.model) || !models.includes(str(f.model)))
+              .map((r) => ({ value: r.reference, hint: r.model }))}
             placeholder="126610LN"
           />
-          <datalist id="references">
-            {refs
-              .filter((r) => !str(f.model) || r.model === str(f.model) || !models.includes(str(f.model)))
-              .map((r) => <option key={r.reference} value={r.reference} label={r.model} />)}
-          </datalist>
         </Field>
         {isRep && (
           <div className="grid grid-cols-2 gap-3">
             <Field label="Factory">
-              <Input list="factories" value={str(f.factory)} onChange={set("factory")} placeholder="Clean" />
-              <datalist id="factories">{FACTORIES.map((x) => <option key={x} value={x} />)}</datalist>
+              <Combobox value={str(f.factory)} onValueChange={(factory) => setF((p) => ({ ...p, factory }))} options={FACTORIES} placeholder="Clean" />
             </Field>
             <Field label="Version / notes"><Input value={str(f.factory_version)} onChange={set("factory_version")} placeholder="V4" /></Field>
           </div>
