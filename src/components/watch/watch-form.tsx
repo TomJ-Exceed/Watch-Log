@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, NativeSelect, Textarea } from "@/components/ui/input";
 import { deletePhoto, setPrimaryPhoto, uploadPhotos } from "./photo-actions";
 import { cn } from "@/lib/utils";
+import { CATALOG_BRANDS, catalogFor } from "@/lib/catalog";
 
 type PhotoWithUrl = WatchPhoto & { url: string | null };
 type Props = {
@@ -53,6 +54,9 @@ export function WatchForm({ userId, watch, photos = [], dealers: initialDealers,
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setF((p) => ({ ...p, [k]: e.target.value }));
   const isRep = f.type === "replica";
+  const allBrands = [...new Set([...CATALOG_BRANDS, ...brands])].sort((a, b) => a.localeCompare(b));
+  const refs = catalogFor(str(f.brand));
+  const models = [...new Set(refs.map((r) => r.model))];
   const sold = f.status === "sold" || f.status === "traded";
 
   async function addDealer() {
@@ -204,10 +208,39 @@ export function WatchForm({ userId, watch, photos = [], dealers: initialDealers,
       <Section title="Watch">
         <Field label="Brand *">
           <Input required list="brands" value={str(f.brand)} onChange={set("brand")} placeholder="Rolex" />
-          <datalist id="brands">{brands.map((b) => <option key={b} value={b} />)}</datalist>
+          <datalist id="brands">{allBrands.map((b) => <option key={b} value={b} />)}</datalist>
         </Field>
-        <Field label="Model *"><Input required value={str(f.model)} onChange={set("model")} placeholder="Submariner Date" /></Field>
-        <Field label="Reference"><Input value={str(f.reference)} onChange={set("reference")} placeholder="126610LN" /></Field>
+        <Field label="Model *">
+          <Input
+            required
+            list="models"
+            value={str(f.model)}
+            onChange={(e) => {
+              const model = e.target.value;
+              const hit = refs.filter((r) => r.model === model);
+              setF((p) => ({ ...p, model, ...(hit.length === 1 && !str(p.reference) ? { reference: hit[0].reference } : {}) }));
+            }}
+            placeholder="Submariner Date"
+          />
+          <datalist id="models">{models.map((m) => <option key={m} value={m} />)}</datalist>
+        </Field>
+        <Field label="Reference">
+          <Input
+            list="references"
+            value={str(f.reference)}
+            onChange={(e) => {
+              const reference = e.target.value;
+              const hit = refs.find((r) => r.reference === reference);
+              setF((p) => ({ ...p, reference, ...(hit && !str(p.model) ? { model: hit.model } : {}) }));
+            }}
+            placeholder="126610LN"
+          />
+          <datalist id="references">
+            {refs
+              .filter((r) => !str(f.model) || r.model === str(f.model) || !models.includes(str(f.model)))
+              .map((r) => <option key={r.reference} value={r.reference} label={r.model} />)}
+          </datalist>
+        </Field>
         {isRep && (
           <div className="grid grid-cols-2 gap-3">
             <Field label="Factory">
