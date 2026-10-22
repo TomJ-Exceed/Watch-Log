@@ -43,7 +43,7 @@ export function LoginForm({ initialError }: { initialError?: string }) {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(msg.includes("Database error") ? "Sign-ups are restricted to the owner's email." : msg);
+      setError(msg.includes("Database error") ? "Sign-ups are closed right now." : msg);
     } finally {
       setBusy(false);
     }

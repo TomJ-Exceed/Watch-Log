@@ -17,7 +17,7 @@ public/sw.js, app/manifest.ts   PWA
 ## Data rules
 - Every table has `user_id default auth.uid()` + RLS "own rows only".
 - Photos: private bucket `watch-photos`, path `<user_id>/<watch_id>/<uuid>.jpg`, served via signed URLs.
-- Sign-ups are restricted to emails in `public.allowed_emails`.
+- Sign-ups are gated by `public.allowed_emails`: a `*` row = open registration (current); delete it to go invite-only.
 - First sign-up seeds default occasions + sample data (tagged `[sample]`, removable in Settings).
 
 ## Local dev
