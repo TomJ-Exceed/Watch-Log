@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, Star, Trash2 } from "lucide-react";
+import { Check, Star, Trash2, Zap } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { PHOTO_BUCKET } from "@/lib/core/queries";
 import { Button } from "@/components/ui/button";
@@ -58,5 +59,18 @@ export function DeleteWatchButton({ watchId, photoPaths }: { watchId: string; ph
     <Button variant="ghost" size="sm" onClick={del} className="text-destructive">
       <Trash2 /> Delete
     </Button>
+  );
+}
+
+/** Opens the shortcut setup screen for a one-tap "wear this watch today" home-screen icon. */
+export function QuickLinkButton({ watchId }: { watchId: string }) {
+  return (
+    <Link href={`/quick?w=${watchId}&setup=1`} className="flex w-full items-center gap-3 rounded-2xl bg-card px-4 py-3 text-left text-sm">
+      <Zap className="size-4 shrink-0 text-primary" />
+      <span className="flex-1">
+        Add a one-tap shortcut
+        <span className="block text-xs text-muted-foreground">A home-screen icon that logs this watch for today</span>
+      </span>
+    </Link>
   );
 }

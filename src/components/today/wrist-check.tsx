@@ -2,7 +2,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, ChevronLeft, ChevronRight, Plus, RefreshCw, Search, Sparkles, Star, Trash2, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Plus, RefreshCw, Search, Sparkles, Star, Trash2, X, Zap } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { Occasion, Strap, WearLog } from "@/lib/core/database.types";
 import { neglectedPick, pickerOrder, type WatchCard } from "@/lib/core/queries";
@@ -123,6 +123,11 @@ export function WristCheck({ date, today, cards, occasions, straps, weekLogs, we
           <h1 className="mt-1 text-[28px] font-semibold leading-tight tracking-tight">{fmt(date, "EEEE, MMM d")}</h1>
         </div>
         <div className="flex items-center gap-1">
+          {isToday && (
+            <Button asChild variant="ghost" size="icon" aria-label="Quick log">
+              <Link href="/quick"><Zap className="text-primary" /></Link>
+            </Button>
+          )}
           <Button asChild variant="ghost" size="icon" aria-label="Previous day">
             <Link href={dayHref(shiftDate(date, -1), today)}>
               <ChevronLeft />

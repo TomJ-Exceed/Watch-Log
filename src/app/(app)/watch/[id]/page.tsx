@@ -8,7 +8,7 @@ import { DEALER_TYPE_LABEL, money, STATUS_LABEL, watchName } from "@/lib/core/fo
 import { WatchThumb } from "@/components/watch-thumb";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FavoriteToggle, WearTodayButton } from "@/components/watch/watch-actions";
+import { FavoriteToggle, QuickLinkButton, WearTodayButton } from "@/components/watch/watch-actions";
 
 export default async function WatchDetailPage({ params }: PageProps<"/watch/[id]">) {
   const { id } = await params;
@@ -87,6 +87,7 @@ export default async function WatchDetailPage({ params }: PageProps<"/watch/[id]
           <FavoriteToggle watchId={w.id} initial={w.is_favorite} />
         </div>
       )}
+      {w.status === "owned" && <QuickLinkButton watchId={w.id} />}
 
       {/* STATS */}
       <section className="grid grid-cols-3 gap-2">

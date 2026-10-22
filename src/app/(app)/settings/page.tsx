@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileUp } from "lucide-react";
 import { requireUser } from "@/lib/supabase/server";
 import { listDealers, listOccasions, listStraps } from "@/lib/core/queries";
 import { AccountSection, DealersManager, OccasionsManager, SampleDataButton, StrapsManager } from "@/components/settings/managers";
@@ -20,6 +20,14 @@ export default async function SettingsPage() {
         <h1 className="text-xl font-semibold">Settings</h1>
       </header>
       {(sample.count ?? 0) > 0 && <SampleDataButton count={sample.count ?? 0} />}
+      <Link href="/settings/import" className="flex items-center gap-3 rounded-3xl border border-border bg-card px-4 py-4">
+        <FileUp className="size-5 text-primary" />
+        <div className="flex-1">
+          <p className="font-medium">Import from CSV</p>
+          <p className="text-xs text-muted-foreground">Bring in watches or past wear history from a spreadsheet</p>
+        </div>
+        <ChevronRight className="size-4 text-muted-foreground" />
+      </Link>
       <OccasionsManager occasions={occasions} />
       <DealersManager dealers={dealers} />
       <StrapsManager straps={straps} />
