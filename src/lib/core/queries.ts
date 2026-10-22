@@ -104,3 +104,13 @@ export async function deleteSampleData(db: DB) {
     if (error) throw new Error(error.message);
   }
 }
+
+/** Entire wear log, paged past the API's 1000-row cap. */
+export async function listAllWear(db: DB) {
+  const out: WearLog[] = [];
+  for (let from = 0; ; from += 1000) {
+    const page = await db.from("wear_log").select("*").order("date").order("created_at").order("id").range(from, from + 999).then(must<WearLog[]>);
+    out.push(...page);
+    if (page.length < 1000) return out;
+  }
+}
