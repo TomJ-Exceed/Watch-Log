@@ -13,7 +13,34 @@ export type WatchGuess = {
 };
 export type IdentifyResult = { is_watch: boolean; candidates: WatchGuess[]; note: string | null };
 
-export const GEMINI_MODELS = ["gemini-flash-latest", "gemini-2.5-flash"] as const;
+/** Used only if the model list can't be fetched. */
+export const FALLBACK_MODELS = ["gemini-flash-latest"];
+
+type ModelInfo = { name: string; supportedGenerationMethods?: string[] };
+
+/**
+ * Pick Flash models from the key's own model list, newest stable first, then the
+ * "flash-latest" alias, then previews. Avoids hard-coding names Google later retires.
+ */
+export function rankFlashModels(models: ModelInfo[]): string[] {
+  const ok = models
+    .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+    .map((m) => m.name.replace(/^models\//, ""))
+    .filter((n) => /^gemini-[\d.]+-flash/.test(n) && !/lite|image|tts|live|audio|embed|robotics|computer/i.test(n));
+  const version = (n: string) => parseFloat(n.match(/^gemini-([\d.]+)-flash/)?.[1] ?? "0");
+  const preview = (n: string) => /preview|exp|\d{2}-\d{2}|\d{4}$/.test(n.replace(/^gemini-[\d.]+-flash/, ""));
+  ok.sort((a, b) => Number(preview(a)) - Number(preview(b)) || version(b) - version(a) || a.length - b.length);
+  const stable = ok.filter((n) => !preview(n));
+  const previews = ok.filter(preview);
+  return [...new Set([...stable.slice(0, 2), "gemini-flash-latest", ...previews.slice(0, 1)])];
+}
+
+/** Settings that switch off (or minimise) "thinking" tokens; Gemini 3+ uses thinkingLevel. */
+export function thinkingConfigs(model: string): (Record<string, unknown> | null)[] {
+  const v = parseFloat(model.match(/^gemini-([\d.]+)/)?.[1] ?? "0");
+  if (v >= 3 || model.includes("latest")) return [{ thinkingLevel: "minimal" }, { thinkingLevel: "low" }, null];
+  return [{ thinkingBudget: 0 }, null];
+}
 
 export const IDENTIFY_PROMPT = `You identify wristwatches from photos for a collector's inventory app.
 Return up to 3 candidates, most likely first. For each: brand, model (the commonly used model name, e.g. "Submariner Date", "Speedmaster Moonwatch Professional"), the manufacturer reference number, dial color, case size in mm, and caliber/movement if you know it for that reference.
@@ -23,6 +50,7 @@ Rules:
 - confidence: "high" only when the model and reference are clearly determinable; otherwise "medium" or "low".
 - reason: one short phrase on the visible details that support the match.
 - If the photo does not show a watch, set is_watch false and return no candidates.
+- Respond with JSON only: {"is_watch": boolean, "candidates": [{"brand","model","reference","dial_color","case_size_mm","movement","confidence","reason"}], "note": string|null}.
 - note: optional one-line tip (e.g. "photograph the caseback or the side of the case to confirm the generation"), else null.`;
 
 const str = { type: "STRING" };
