@@ -2,16 +2,18 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, FileUp } from "lucide-react";
 import { requireUser } from "@/lib/supabase/server";
 import { listDealers, listOccasions, listStraps } from "@/lib/core/queries";
+import { AiKeyCard } from "@/components/settings/ai-key-card";
 import { AccountSection, DealersManager, OccasionsManager, SampleDataButton, StrapsManager } from "@/components/settings/managers";
 
 export default async function SettingsPage() {
   const { supabase } = await requireUser();
-  const [occasions, dealers, straps, sample, user] = await Promise.all([
+  const [occasions, dealers, straps, sample, user, ai] = await Promise.all([
     listOccasions(supabase),
     listDealers(supabase),
     listStraps(supabase),
     supabase.from("watches").select("id", { count: "exact", head: true }).like("notes", "[sample]%"),
     supabase.auth.getUser(),
+    supabase.from("user_ai_settings").select("key_hint").maybeSingle(),
   ]);
   return (
     <div className="space-y-8">
@@ -20,6 +22,7 @@ export default async function SettingsPage() {
         <h1 className="text-xl font-semibold">Settings</h1>
       </header>
       {(sample.count ?? 0) > 0 && <SampleDataButton count={sample.count ?? 0} />}
+      <AiKeyCard hint={ai.data?.key_hint ?? null} />
       <Link href="/settings/import" className="flex items-center gap-3 rounded-3xl border border-border bg-card px-4 py-4">
         <FileUp className="size-5 text-primary" />
         <div className="flex-1">

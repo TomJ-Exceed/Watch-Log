@@ -17,6 +17,8 @@ export default async function EditWatchPage({ params }: PageProps<"/watch/[id]/e
   ]);
   if (!data) notFound();
   const brands = [...new Set((brandRows.data ?? []).map((r) => r.brand))].sort();
+  const { data: ai } = await supabase.from("user_ai_settings").select("key_hint").maybeSingle();
+  const aiEnabled = Boolean(ai?.key_hint);
   return (
     <div className="space-y-5">
       <header className="flex items-center justify-between gap-2">
@@ -26,7 +28,7 @@ export default async function EditWatchPage({ params }: PageProps<"/watch/[id]/e
         </div>
         <DeleteWatchButton watchId={id} photoPaths={data.photos.map((p) => p.storage_path)} />
       </header>
-      <WatchForm userId={userId} watch={data.watch} photos={data.photos} dealers={dealers} straps={straps} brands={brands} />
+      <WatchForm userId={userId} aiEnabled={aiEnabled} watch={data.watch} photos={data.photos} dealers={dealers} straps={straps} brands={brands} />
     </div>
   );
 }

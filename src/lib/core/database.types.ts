@@ -20,6 +20,7 @@ type WatchRow = {
   status: WatchStatus; sale_date: string | null; sale_price: number | null; created_at: string; updated_at: string;
   for_sale: boolean; asking_price: number | null;
 };
+type UserAiSettingsRow = { user_id: string; gemini_secret_id: string | null; key_hint: string | null; updated_at: string };
 type WatchPhotoRow = { id: string; user_id: string; watch_id: string; storage_path: string; is_primary: boolean; sort_order: number; created_at: string };
 type WearLogRow = { id: string; user_id: string; date: string; watch_id: string; strap_id: string | null; occasion_id: string | null; occasion_detail: string | null; notes: string | null; created_at: string };
 type WatchStatsRow = { watch_id: string | null; user_id: string | null; wear_count: number | null; last_worn: string | null; wears_30: number | null; wears_90: number | null; wears_365: number | null };
@@ -31,6 +32,7 @@ export type Database = {
   __InternalSupabase: { PostgrestVersion: "14.18" };
   public: {
     Tables: {
+      user_ai_settings: { Row: UserAiSettingsRow; Insert: never; Update: never; Relationships: Rel[] };
       dealers: Table<DealerRow, "name">;
       straps: Table<StrapRow, "name">;
       occasions: Table<OccasionRow, "name">;
@@ -39,7 +41,11 @@ export type Database = {
       wear_log: Table<WearLogRow, "date" | "watch_id">;
     };
     Views: { watch_stats: { Row: WatchStatsRow; Relationships: Rel[] } };
-    Functions: Record<string, never>;
+    Functions: {
+      set_gemini_key: { Args: { p_key: string }; Returns: string };
+      clear_gemini_key: { Args: Record<string, never>; Returns: undefined };
+      get_gemini_key: { Args: Record<string, never>; Returns: string | null };
+    };
     Enums: { dealer_type: DealerType; watch_status: WatchStatus; watch_type: WatchType };
     CompositeTypes: Record<string, never>;
   };

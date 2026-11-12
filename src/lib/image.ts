@@ -1,6 +1,6 @@
 "use client";
 /** Downscale a phone photo to keep uploads small and the grid fast. */
-export async function compressImage(file: File, maxSide = 1600, quality = 0.85): Promise<Blob> {
+export async function compressImage(file: Blob, maxSide = 1600, quality = 0.85): Promise<Blob> {
   try {
     const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" } as ImageBitmapOptions);
     const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));

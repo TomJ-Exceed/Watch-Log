@@ -11,10 +11,12 @@ import { deletePhoto, setPrimaryPhoto, uploadPhotos } from "./photo-actions";
 import { cn } from "@/lib/utils";
 import { CATALOG_BRANDS, catalogFor } from "@/lib/catalog";
 import { Combobox } from "@/components/ui/combobox";
+import { IdentifyPanel } from "./identify-panel";
 
 type PhotoWithUrl = WatchPhoto & { url: string | null };
 type Props = {
   userId: string;
+  aiEnabled?: boolean;
   watch?: Watch;
   photos?: PhotoWithUrl[];
   dealers: Dealer[];
@@ -40,7 +42,7 @@ function initial(w?: Watch): Form {
   };
 }
 
-export function WatchForm({ userId, watch, photos = [], dealers: initialDealers, straps: initialStraps, brands }: Props) {
+export function WatchForm({ userId, aiEnabled = false, watch, photos = [], dealers: initialDealers, straps: initialStraps, brands }: Props) {
   const router = useRouter();
   const [f, setF] = useState<Form>(() => initial(watch));
   const [dealers, setDealers] = useState(initialDealers);
@@ -210,6 +212,25 @@ export function WatchForm({ userId, watch, photos = [], dealers: initialDealers,
       </div>
 
       <Section title="Watch">
+        <IdentifyPanel
+          enabled={aiEnabled}
+          existingPhoto={pending[0] ? { file: pending[0].file } : existing[0] ? { url: (existing.find((p) => p.is_primary) ?? existing[0]).url } : null}
+          onNewPhoto={(file) => {
+            // First photo of a new watch doubles as its gallery photo.
+            if (!pending.length && !existing.length) setPending([{ file, preview: URL.createObjectURL(file) }]);
+          }}
+          onPick={(g) =>
+            setF((p) => ({
+              ...p,
+              brand: g.brand,
+              model: g.model,
+              reference: g.reference ?? str(p.reference),
+              dial_color: str(p.dial_color) || g.dial_color || "",
+              case_size_mm: str(p.case_size_mm) || (g.case_size_mm != null ? String(g.case_size_mm) : ""),
+              movement: str(p.movement) || g.movement || "",
+            }))
+          }
+        />
         <Field label="Brand *">
           <Combobox
             required

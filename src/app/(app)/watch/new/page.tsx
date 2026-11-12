@@ -12,13 +12,15 @@ export default async function NewWatchPage() {
     supabase.from("watches").select("brand"),
   ]);
   const brands = [...new Set((brandRows.data ?? []).map((r) => r.brand))].sort();
+  const { data: ai } = await supabase.from("user_ai_settings").select("key_hint").maybeSingle();
+  const aiEnabled = Boolean(ai?.key_hint);
   return (
     <div className="space-y-5">
       <header className="flex items-center gap-2">
         <Link href="/collection" className="-ml-2 p-2 text-muted-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Link>
         <h1 className="text-xl font-semibold">Add watch</h1>
       </header>
-      <WatchForm userId={userId} dealers={dealers} straps={straps} brands={brands} />
+      <WatchForm userId={userId} aiEnabled={aiEnabled} dealers={dealers} straps={straps} brands={brands} />
     </div>
   );
 }
