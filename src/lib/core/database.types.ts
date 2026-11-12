@@ -18,6 +18,7 @@ type WatchRow = {
   serial: string | null; notes: string | null; is_favorite: boolean; dealer_id: string | null;
   purchase_date: string | null; purchase_price: number | null; currency: string; gen_retail_price: number | null;
   status: WatchStatus; sale_date: string | null; sale_price: number | null; created_at: string; updated_at: string;
+  for_sale: boolean; asking_price: number | null;
 };
 type WatchPhotoRow = { id: string; user_id: string; watch_id: string; storage_path: string; is_primary: boolean; sort_order: number; created_at: string };
 type WearLogRow = { id: string; user_id: string; date: string; watch_id: string; strap_id: string | null; occasion_id: string | null; occasion_detail: string | null; notes: string | null; created_at: string };

@@ -36,6 +36,7 @@ function initial(w?: Watch): Form {
     is_favorite: w?.is_favorite ?? false, dealer_id: str(w?.dealer_id), purchase_date: str(w?.purchase_date),
     purchase_price: str(w?.purchase_price), currency: w?.currency ?? "USD", gen_retail_price: str(w?.gen_retail_price),
     status: w?.status ?? "owned", sale_date: str(w?.sale_date), sale_price: str(w?.sale_price),
+    for_sale: w?.for_sale ?? false, asking_price: str(w?.asking_price),
   };
 }
 
@@ -118,6 +119,8 @@ export function WatchForm({ userId, watch, photos = [], dealers: initialDealers,
       status: f.status as WatchStatus,
       sale_date: sold ? txt("sale_date") : null,
       sale_price: sold ? num("sale_price") : null,
+      for_sale: f.status === "owned" && Boolean(f.for_sale),
+      asking_price: f.status === "owned" && f.for_sale ? num("asking_price") : null,
     };
     try {
       const sb = supabaseBrowser();
@@ -302,7 +305,14 @@ export function WatchForm({ userId, watch, photos = [], dealers: initialDealers,
       </Section>
 
       <Section title="Status">
-        <NativeSelect value={str(f.status)} onChange={set("status")}>
+        <NativeSelect
+          value={str(f.status)}
+          onChange={(e) => {
+            const status = e.target.value;
+            // Selling a listed watch: carry the asking price over as the sale price.
+            setF((p) => ({ ...p, status, ...(status === "sold" && !str(p.sale_price) && p.for_sale && str(p.asking_price) ? { sale_price: str(p.asking_price) } : {}) }));
+          }}
+        >
           {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </NativeSelect>
         {sold && (
@@ -310,6 +320,20 @@ export function WatchForm({ userId, watch, photos = [], dealers: initialDealers,
             <Field label={f.status === "sold" ? "Sale date" : "Trade date"}><Input type="date" value={str(f.sale_date)} onChange={set("sale_date")} /></Field>
             <Field label={f.status === "sold" ? "Sale price" : "Trade value"}><Input inputMode="decimal" value={str(f.sale_price)} onChange={set("sale_price")} /></Field>
           </div>
+        )}
+        {f.status === "owned" && (
+          <label className="flex items-center gap-3 rounded-2xl border border-border p-3">
+            <input type="checkbox" checked={Boolean(f.for_sale)} onChange={(e) => setF((p) => ({ ...p, for_sale: e.target.checked }))} className="size-5 accent-[var(--primary)]" />
+            <span className="text-sm">For sale</span>
+          </label>
+        )}
+        {f.status === "owned" && Boolean(f.for_sale) && (
+          <Field label="Asking price">
+            <div className="flex gap-1.5">
+              <Input inputMode="decimal" value={str(f.asking_price)} onChange={set("asking_price")} placeholder="0" autoFocus={!watch?.for_sale} />
+              <span className="grid h-11 w-20 place-items-center rounded-xl border border-border text-sm text-muted-foreground">{str(f.currency) || "USD"}</span>
+            </div>
+          </Field>
         )}
       </Section>
 

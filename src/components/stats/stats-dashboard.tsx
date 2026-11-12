@@ -50,7 +50,7 @@ export function StatsDashboard({ cards, wear, occasions, dealers, straps, today 
       factory_version: x.factory_version, dial: x.dial_color, case_mm: x.case_size_mm, case_material: x.case_material,
       movement: x.movement, dealer: x.dealer_id ? d.get(x.dealer_id)?.name : "", purchase_date: x.purchase_date,
       purchase_price: x.purchase_price, currency: x.currency, gen_retail_price: x.gen_retail_price, sale_date: x.sale_date,
-      sale_price: x.sale_price, favorite: x.is_favorite, condition: x.condition, serial: x.serial, notes: x.notes,
+      sale_price: x.sale_price, for_sale: x.for_sale, asking_price: x.asking_price, favorite: x.is_favorite, condition: x.condition, serial: x.serial, notes: x.notes,
       wears_all_time: rows.find((r) => r.watch.id === x.id)?.allTime ?? 0,
     }))));
     download(`wrist-check-wear-log-${today}.csv`, toCSV(wear.map((r) => {

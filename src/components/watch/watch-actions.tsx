@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, Star, Trash2, Zap } from "lucide-react";
+import { Check, Copy, Star, Tag, Trash2, Zap } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { PHOTO_BUCKET } from "@/lib/core/queries";
 import { Button } from "@/components/ui/button";
@@ -72,5 +72,38 @@ export function QuickLinkButton({ watchId }: { watchId: string }) {
         <span className="block text-xs text-muted-foreground">A home-screen icon that logs this watch for today</span>
       </span>
     </Link>
+  );
+}
+
+/** Pre-formatted sale listing with a one-tap copy button. */
+export function SaleListing({ text, editHref, missingPrice }: { text: string; editHref: string; missingPrice: boolean }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Fallback for browsers that block the async clipboard API.
+      const ta = Object.assign(document.createElement("textarea"), { value: text });
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    navigator.vibrate?.(15);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  }
+  return (
+    <section className="space-y-3 rounded-3xl border border-primary/40 bg-card p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 text-sm font-medium"><Tag className="size-4 text-primary" /> Sale listing</h2>
+        <Link href={editHref} className="text-xs text-muted-foreground">Edit price</Link>
+      </div>
+      <pre className="whitespace-pre-wrap rounded-2xl bg-background px-4 py-3 font-sans text-sm leading-relaxed">{text}</pre>
+      {missingPrice && <p className="text-xs text-muted-foreground">Add an asking price to include it in the listing.</p>}
+      <Button className="w-full" onClick={copy}>
+        {copied ? <><Check /> Copied</> : <><Copy /> Copy listing</>}
+      </Button>
+    </section>
   );
 }

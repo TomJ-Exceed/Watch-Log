@@ -115,6 +115,8 @@ const WATCH_ALIASES: Record<string, string[]> = {
   gen_retail_price: ["gen retail price", "retail", "retail price", "msrp", "market value", "gen price", "genuine price"],
   sale_date: ["sale date", "date sold"],
   sale_price: ["sale price", "sold for"],
+  for_sale: ["for sale", "is for sale", "selling", "listed"],
+  asking_price: ["asking price", "asking", "ask", "list price", "listing price"],
   is_favorite: ["favorite", "favourite", "is favorite", "fav"],
   condition: ["condition"],
   serial: ["serial", "serial number"],
@@ -157,7 +159,7 @@ export function parseWatchRows(rows: string[][], existing: Pick<Watch, "brand" |
       if (d === undefined) errors.push(`${f.replace("_", " ")} "${get(f)}" isn't a date`);
       else if (d) draft[f] = d;
     }
-    for (const f of ["purchase_price", "gen_retail_price", "sale_price", "case_size_mm"] as const) {
+    for (const f of ["purchase_price", "gen_retail_price", "sale_price", "asking_price", "case_size_mm"] as const) {
       const n = parseMoney(get(f));
       if (n === undefined) errors.push(`${f.replace(/_/g, " ")} "${get(f)}" isn't a number`);
       else if (n != null) draft[f] = n;
@@ -165,6 +167,9 @@ export function parseWatchRows(rows: string[][], existing: Pick<Watch, "brand" |
     const cur = get("currency").toUpperCase();
     if (cur) draft.currency = cur.slice(0, 3);
     if (get("is_favorite")) draft.is_favorite = truthy(get("is_favorite"));
+    if (get("for_sale")) draft.for_sale = truthy(get("for_sale"));
+    if (draft.asking_price != null && draft.for_sale === undefined) draft.for_sale = true;
+    if (draft.status !== "owned") { draft.for_sale = false; delete draft.asking_price; }
 
     let skip: string | undefined;
     if (!errors.length) {
@@ -258,8 +263,8 @@ export function resolveNames(names: (string | undefined)[], rows: (Dealer | Stra
 }
 
 export const WATCH_TEMPLATE =
-  "brand,model,reference,type,status,factory,factory_version,dial,case_mm,case_material,movement,dealer,strap,purchase_date,purchase_price,currency,gen_retail_price,sale_date,sale_price,favorite,condition,serial,notes\r\n" +
-  "Rolex,Submariner Date,126610LN,genuine,owned,,,Black,41,Steel,3235,Local AD,Oyster bracelet,2024-05-01,10800,USD,10800,,,yes,Excellent,,\r\n";
+  "brand,model,reference,type,status,factory,factory_version,dial,case_mm,case_material,movement,dealer,strap,purchase_date,purchase_price,currency,gen_retail_price,sale_date,sale_price,for_sale,asking_price,favorite,condition,serial,notes\r\n" +
+  "Rolex,Submariner Date,126610LN,genuine,owned,,,Black,41,Steel,3235,Local AD,Oyster bracelet,2024-05-01,10800,USD,10800,,,,,yes,Excellent,,\r\n";
 export const WEAR_TEMPLATE =
   "date,brand,model,reference,occasion,occasion_detail,strap,notes\r\n" +
   "2026-10-01,Rolex,Submariner Date,126610LN,Daily Wear,,Oyster bracelet,\r\n";

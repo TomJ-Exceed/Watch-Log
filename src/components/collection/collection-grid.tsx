@@ -5,7 +5,7 @@ import { Search, SlidersHorizontal, Star } from "lucide-react";
 import type { Dealer } from "@/lib/core/database.types";
 import type { WatchCard } from "@/lib/core/queries";
 import { agoLabel } from "@/lib/core/dates";
-import { STATUS_LABEL, watchName } from "@/lib/core/format";
+import { money, STATUS_LABEL, watchName } from "@/lib/core/format";
 import { WatchThumb } from "@/components/watch-thumb";
 import { Badge } from "@/components/ui/badge";
 import { Input, NativeSelect } from "@/components/ui/input";
@@ -37,7 +37,7 @@ export function CollectionGrid({ cards, dealers, today }: { cards: WatchCard[]; 
     const out = cards.filter(
       (c) =>
         (type === "all" || c.type === type) &&
-        (!status || c.status === status) &&
+        (!status || (status === "for_sale" ? c.for_sale : c.status === status)) &&
         (!brand || c.brand === brand) &&
         (!dealer || c.dealer_id === dealer) &&
         (!s || [c.brand, c.model, c.reference, c.dial_color, c.factory, c.notes].some((v) => v?.toLowerCase().includes(s))),
@@ -89,6 +89,7 @@ export function CollectionGrid({ cards, dealers, today }: { cards: WatchCard[]; 
           <NativeSelect value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">Any status</option>
             {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            <option value="for_sale">For sale</option>
           </NativeSelect>
           <NativeSelect value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
             {Object.entries(SORTS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -118,6 +119,11 @@ export function CollectionGrid({ cards, dealers, today }: { cards: WatchCard[]; 
                   </Badge>
                 </div>
                 {c.is_favorite && <Star className="absolute right-2 top-2 size-4 fill-primary text-primary drop-shadow" />}
+                {c.for_sale && (
+                  <span className="absolute bottom-2 left-2 rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground">
+                    For sale{c.asking_price != null ? ` · ${money(c.asking_price, c.currency)}` : ""}
+                  </span>
+                )}
               </div>
               <p className="mt-2 truncate text-sm font-semibold leading-tight">{c.brand}</p>
               <p className="truncate text-[13px] leading-tight text-secondary-foreground">{c.model}</p>

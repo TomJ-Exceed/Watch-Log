@@ -8,7 +8,8 @@ import { DEALER_TYPE_LABEL, money, STATUS_LABEL, watchName } from "@/lib/core/fo
 import { WatchThumb } from "@/components/watch-thumb";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FavoriteToggle, QuickLinkButton, WearTodayButton } from "@/components/watch/watch-actions";
+import { FavoriteToggle, QuickLinkButton, SaleListing, WearTodayButton } from "@/components/watch/watch-actions";
+import { saleListing } from "@/lib/core/listing";
 
 export default async function WatchDetailPage({ params }: PageProps<"/watch/[id]">) {
   const { id } = await params;
@@ -50,6 +51,7 @@ export default async function WatchDetailPage({ params }: PageProps<"/watch/[id]
     ["Price paid", w.purchase_price != null ? money(w.purchase_price, w.currency) : null],
     [isRep ? "Genuine retail" : "MSRP / market", w.gen_retail_price != null ? money(w.gen_retail_price, w.currency) : null],
     ["Status", STATUS_LABEL[w.status]],
+    ...(w.for_sale ? ([["Asking price", w.asking_price != null ? money(w.asking_price, w.currency) : "Not set"]] as [string, string][]) : []),
     ...(w.sale_date || w.sale_price ? ([[w.status === "traded" ? "Traded" : "Sold", [w.sale_date && fmt(w.sale_date, "MMM d, yyyy"), w.sale_price != null && money(w.sale_price, w.currency)].filter(Boolean).join(" · ")]] as [string, string][]) : []),
   ];
 
@@ -76,6 +78,7 @@ export default async function WatchDetailPage({ params }: PageProps<"/watch/[id]
         <div className="flex flex-wrap gap-1.5">
           <Badge variant={isRep ? "rep" : "gen"}>{isRep ? "Replica" : "Genuine"}</Badge>
           {w.status !== "owned" && <Badge>{STATUS_LABEL[w.status]}</Badge>}
+          {w.for_sale && <Badge className="border-primary/50 text-primary">For sale{w.asking_price != null ? ` · ${money(w.asking_price, w.currency)}` : ""}</Badge>}
         </div>
         <h1 className="text-2xl font-semibold leading-tight tracking-tight">{w.brand}<br /><span className="text-secondary-foreground">{w.model}</span></h1>
         <p className="text-sm text-muted-foreground">{agoLabel(lastWorn, today)}</p>
@@ -87,6 +90,7 @@ export default async function WatchDetailPage({ params }: PageProps<"/watch/[id]
           <FavoriteToggle watchId={w.id} initial={w.is_favorite} />
         </div>
       )}
+      {w.for_sale && <SaleListing text={saleListing(w)} editHref={`/watch/${id}/edit`} missingPrice={w.asking_price == null} />}
       {w.status === "owned" && <QuickLinkButton watchId={w.id} />}
 
       {/* STATS */}
