@@ -44,8 +44,7 @@ export function IdentifyPanel({ enabled, existingPhoto, onNewPhoto, onPick }: Pr
     try {
       const jpeg = await compressImage(source, 1024, 0.8);
       const image = await toBase64(jpeg);
-      const res = await fetch("/api/identify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image }) });
-      const json = await res.json().catch(() => ({ error: "Unexpected response. Try again." }));
+      const { res, json } = await callIdentify(image);
       if (!res.ok) return setError({ text: json.error ?? "Couldn't identify the watch.", settings: json.code === "no_key" || json.code === "bad_key" });
       const r = json as IdentifyResult;
       if (!r.is_watch || !r.candidates.length) return setError({ text: r.note ?? "Couldn't spot a watch in that photo. Try a clear, front-on shot of the dial." });
@@ -146,6 +145,29 @@ export function IdentifyPanel({ enabled, existingPhoto, onNewPhoto, onPick }: Pr
       )}
     </div>
   );
+}
+
+type ApiReply = { error?: string; code?: string } & Partial<IdentifyResult>;
+
+/** POST to /api/identify; turns non-JSON replies (timeouts, login redirects) into clear errors and retries a timeout once. */
+async function callIdentify(image: string, retry = true): Promise<{ res: Response; json: ApiReply }> {
+  const res = await fetch("/api/identify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image }) });
+  const isJson = res.headers.get("content-type")?.includes("application/json");
+  if (isJson) {
+    const json = (await res.json().catch(() => ({}))) as ApiReply;
+    if (res.status === 504 && json.code === "timeout" && retry) return callIdentify(image, false);
+    return { res, json };
+  }
+  // Not JSON: the platform answered instead of our route.
+  if (res.redirected || res.url.includes("/login")) {
+    return { res: new Response(null, { status: 401 }), json: { error: "Your session expired. Refresh the page and sign in again." } };
+  }
+  if ((res.status === 504 || res.status === 502 || res.status === 500) && retry) return callIdentify(image, false);
+  const msg =
+    res.status === 413 ? "That photo is too large. Try another one."
+    : res.status >= 500 || res.status === 0 ? "Identify took too long to answer. Try again — a close, well-lit shot of the dial helps."
+    : `Something went wrong (error ${res.status}). Try again.`;
+  return { res: new Response(null, { status: res.status || 500 }), json: { error: msg } };
 }
 
 function toBase64(blob: Blob) {
