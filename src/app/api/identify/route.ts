@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { FALLBACK_MODELS, IDENTIFY_PROMPT, IDENTIFY_SCHEMA, parseIdentify, rankFlashModels, thinkingConfigs } from "@/lib/core/identify";
+import { type GeminiError, describeQuota, FALLBACK_MODELS, IDENTIFY_PROMPT, IDENTIFY_SCHEMA, parseIdentify, rankFlashModels, thinkingConfigs } from "@/lib/core/identify";
 
 export const maxDuration = 60;
 
@@ -78,6 +78,7 @@ export async function POST(req: Request) {
   }
 
   let firstError: string | null = null;
+  let quota: string | null = null;
   let timedOut = false;
   const skipModels = new Set<string>();
   const tried = new Set<string>();
@@ -106,7 +107,7 @@ export async function POST(req: Request) {
 
     const json = (await res.json().catch(() => ({}))) as {
       candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[];
-      error?: { message?: string };
+      error?: GeminiError;
     };
     if (res.ok) {
       const text = json.candidates?.[0]?.content?.parts?.filter((p) => !p.thought).map((p) => p.text ?? "").join("") ?? "";
@@ -125,7 +126,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Your Gemini API key was rejected. Update it in Settings.", code: "bad_key" }, { status: 400 });
     }
     if (res.status === 403) return NextResponse.json({ error: "Your Gemini key doesn't have access. Check it in Google AI Studio.", code: "bad_key" }, { status: 400 });
-    if (res.status === 429) return NextResponse.json({ error: "Gemini rate limit or free quota reached. Try again in a minute." }, { status: 429 });
+    if (res.status === 429) {
+      // Quotas are per model: note why, then try the next model (it may have free allowance left).
+      quota ??= describeQuota(json.error, combo.model);
+      skipModels.add(combo.model);
+      continue;
+    }
     if (known && sig === JSON.stringify(known.combo)) winner.delete(keyId);
     // A 400 about a setting → try the next setting for this model; anything else → skip the model.
     if (res.status === 400 && !/no longer available|not found|deprecat/i.test(msg)) { firstError ??= msg; continue; }
@@ -134,6 +140,7 @@ export async function POST(req: Request) {
     skipModels.add(combo.model);
   }
 
+  if (quota && !firstError) return NextResponse.json({ error: quota, code: "quota" }, { status: 429 });
   if (timedOut && !firstError) {
     return NextResponse.json({ error: "Gemini took too long to answer. Try again — a close, well-lit shot of the dial helps.", code: "timeout" }, { status: 504 });
   }

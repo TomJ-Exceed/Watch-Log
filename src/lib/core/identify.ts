@@ -103,3 +103,23 @@ export function parseIdentify(text: string): IdentifyResult {
     .slice(0, 3);
   return { is_watch: raw.is_watch !== false && candidates.length > 0, candidates, note: s(raw.note) };
 }
+
+export type GeminiError = {
+  message?: string;
+  details?: { "@type"?: string; violations?: { quotaId?: string; quotaMetric?: string }[]; retryDelay?: string }[];
+};
+
+/** Turn Google's 429 details into a plain-English reason (which limit, when it resets). */
+export function describeQuota(err: GeminiError | undefined, model: string) {
+  const msg = err?.message ?? "";
+  const ids = (err?.details ?? []).flatMap((d) => d.violations ?? []).map((v) => `${v.quotaId ?? ""} ${v.quotaMetric ?? ""}`).join(" ");
+  const retry = (err?.details ?? []).find((d) => d.retryDelay)?.retryDelay;
+  const secs = retry ? Math.ceil(parseFloat(retry)) : null;
+  if (/limit:\s*0\b/.test(msg)) {
+    return `Your Gemini key has no free allowance for ${model}. Turn on billing for the key in Google AI Studio (it's a fraction of a cent per photo), then try again.`;
+  }
+  if (/PerDay/i.test(ids)) return "Your Gemini key has used its free daily allowance. It resets at midnight Pacific time — or turn on billing in Google AI Studio to keep going.";
+  if (/PerMinute/i.test(ids) || secs) return `Too many identifies in a short time for the free Gemini tier. Try again in ${secs && secs < 120 ? `${secs} seconds` : "a minute"}.`;
+  return "Gemini says your key is over its usage limit. Wait a minute and try again, or turn on billing in Google AI Studio.";
+}
+
