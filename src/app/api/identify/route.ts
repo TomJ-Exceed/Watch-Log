@@ -18,6 +18,8 @@ type Combo = { model: string; thinking: Thinking; schema: boolean };
 // so repeat calls are a single Gemini request instead of a model lookup + trial and error.
 const modelCache = new Map<string, { models: string[]; at: number }>();
 const winner = new Map<string, { combo: Combo; at: number }>();
+// Thinking settings a model has rejected ("Thinking level MINIMAL is not supported…"), so we skip them next time.
+const rejectedThinking = new Set<string>();
 const fresh = (at: number) => Date.now() - at < CACHE_MS;
 
 async function availableModels(key: string, keyId: string) {
@@ -86,6 +88,7 @@ export async function POST(req: Request) {
   for (const combo of attempts) {
     const sig = JSON.stringify(combo);
     if (tried.has(sig) || skipModels.has(combo.model)) continue;
+    if (combo.thinking && rejectedThinking.has(combo.model + JSON.stringify(combo.thinking))) continue;
     tried.add(sig);
     const remaining = TOTAL_BUDGET_MS - (Date.now() - started);
     if (remaining < 4000) { timedOut = true; break; }
@@ -134,6 +137,11 @@ export async function POST(req: Request) {
     }
     if (known && sig === JSON.stringify(known.combo)) winner.delete(keyId);
     // A 400 about a setting → try the next setting for this model; anything else → skip the model.
+    if (res.status === 400 && combo.thinking && /thinking/i.test(msg)) {
+      // A settings mismatch, not something to show the user — remember it and try the next level.
+      rejectedThinking.add(combo.model + JSON.stringify(combo.thinking));
+      continue;
+    }
     if (res.status === 400 && !/no longer available|not found|deprecat/i.test(msg)) { firstError ??= msg; continue; }
     if (res.status >= 500) { firstError ??= "Gemini is having trouble right now. Try again shortly."; continue; }
     firstError ??= msg;
