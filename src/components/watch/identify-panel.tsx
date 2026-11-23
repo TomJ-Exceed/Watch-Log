@@ -24,7 +24,7 @@ const CONF_STYLE: Record<WatchGuess["confidence"], string> = {
 export function IdentifyPanel({ enabled, existingPhoto, onNewPhoto, onPick }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<{ text: string; settings?: boolean }>();
+  const [error, setError] = useState<{ text: string; settings?: boolean; detail?: string }>();
   const [result, setResult] = useState<IdentifyResult | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
 
@@ -45,7 +45,7 @@ export function IdentifyPanel({ enabled, existingPhoto, onNewPhoto, onPick }: Pr
       const jpeg = await compressImage(source, 1024, 0.8);
       const image = await toBase64(jpeg);
       const { res, json } = await callIdentify(image);
-      if (!res.ok) return setError({ text: json.error ?? "Couldn't identify the watch.", settings: json.code === "no_key" || json.code === "bad_key" });
+      if (!res.ok) return setError({ text: json.error ?? "Couldn't identify the watch.", settings: json.code === "no_key" || json.code === "bad_key", detail: json.detail });
       const r = json as IdentifyResult;
       if (!r.is_watch || !r.candidates.length) return setError({ text: r.note ?? "Couldn't spot a watch in that photo. Try a clear, front-on shot of the dial." });
       setResult(r);
@@ -107,6 +107,7 @@ export function IdentifyPanel({ enabled, existingPhoto, onNewPhoto, onPick }: Pr
       {error && (
         <p className="text-sm text-destructive">
           {error.text} {error.settings && <Link href="/settings" className="underline">Open Settings</Link>}
+          {error.detail && <span className="mt-1 block text-xs text-muted-foreground">{error.detail}</span>}
         </p>
       )}
 
@@ -147,7 +148,7 @@ export function IdentifyPanel({ enabled, existingPhoto, onNewPhoto, onPick }: Pr
   );
 }
 
-type ApiReply = { error?: string; code?: string } & Partial<IdentifyResult>;
+type ApiReply = { error?: string; code?: string; detail?: string } & Partial<IdentifyResult>;
 
 /** POST to /api/identify; turns non-JSON replies (timeouts, login redirects) into clear errors and retries a timeout once. */
 async function callIdentify(image: string, retry = true): Promise<{ res: Response; json: ApiReply }> {

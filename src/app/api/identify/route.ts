@@ -82,10 +82,15 @@ export async function POST(req: Request) {
   let firstError: string | null = null;
   let quota: string | null = null;
   let timedOut = false;
+  let serverError: string | null = null;
   const skipModels = new Set<string>();
   const tried = new Set<string>();
+  const retried5xx = new Set<string>();
+  const trail: string[] = []; // e.g. "3.8-flash 503" — shown small under errors so screenshots are diagnosable
+  const note = (model: string, what: string | number) => trail.push(`${model.replace(/^gemini-/, "")} ${what}`);
 
-  for (const combo of attempts) {
+  for (let i = 0; i < attempts.length; i++) {
+    const combo = attempts[i];
     const sig = JSON.stringify(combo);
     if (tried.has(sig) || skipModels.has(combo.model)) continue;
     if (combo.thinking && rejectedThinking.has(combo.model + JSON.stringify(combo.thinking))) continue;
@@ -102,6 +107,7 @@ export async function POST(req: Request) {
         signal: AbortSignal.timeout(Math.min(CALL_TIMEOUT_MS, remaining - 2000)),
       });
     } catch (e) {
+      note(combo.model, "timeout");
       if ((e as Error).name === "TimeoutError" || (e as Error).name === "AbortError") timedOut = true;
       else firstError ??= "Couldn't reach Gemini. Try again.";
       skipModels.add(combo.model); // a slow/unreachable model won't get faster on retry
@@ -125,6 +131,7 @@ export async function POST(req: Request) {
     }
 
     const msg = json.error?.message ?? `Gemini error ${res.status}`;
+    note(combo.model, res.status);
     if (/api[_ ]?key/i.test(msg) && (res.status === 400 || res.status === 401)) {
       return NextResponse.json({ error: "Your Gemini API key was rejected. Update it in Settings.", code: "bad_key" }, { status: 400 });
     }
@@ -143,14 +150,33 @@ export async function POST(req: Request) {
       continue;
     }
     if (res.status === 400 && !/no longer available|not found|deprecat/i.test(msg)) { firstError ??= msg; continue; }
-    if (res.status >= 500) { firstError ??= "Gemini is having trouble right now. Try again shortly."; continue; }
+    if (res.status >= 500) {
+      // Usually "model overloaded" — transient. Retry the same request once after a short pause,
+      // then move on (other settings / the next Flash model).
+      if (!retried5xx.has(combo.model) && TOTAL_BUDGET_MS - (Date.now() - started) > 10000) {
+        retried5xx.add(combo.model);
+        tried.delete(sig);
+        await new Promise((r) => setTimeout(r, 1500));
+        i--;
+        continue;
+      }
+      serverError ??= /overload|unavailable|high demand/i.test(msg)
+        ? "Google's Gemini servers are overloaded right now. Try again in a minute."
+        : "Gemini is having trouble right now. Try again shortly.";
+      if (res.status === 503) skipModels.add(combo.model); // overloaded model: other settings won't help
+      continue;
+    }
     firstError ??= msg;
     skipModels.add(combo.model);
   }
 
-  if (quota && !firstError) return NextResponse.json({ error: quota, code: "quota" }, { status: 429 });
+  const counts = new Map<string, number>();
+  for (const t of trail) counts.set(t, (counts.get(t) ?? 0) + 1);
+  const detail = trail.length ? `Tried: ${[...counts].map(([t, n]) => (n > 1 ? `${t} ×${n}` : t)).join(", ")}` : undefined;
+  if (quota && !firstError) return NextResponse.json({ error: quota, code: "quota", detail }, { status: 429 });
+  if (serverError && !firstError) return NextResponse.json({ error: serverError, code: "unavailable", detail }, { status: 503 });
   if (timedOut && !firstError) {
-    return NextResponse.json({ error: "Gemini took too long to answer. Try again — a close, well-lit shot of the dial helps.", code: "timeout" }, { status: 504 });
+    return NextResponse.json({ error: "Gemini took too long to answer. Try again — a close, well-lit shot of the dial helps.", code: "timeout", detail }, { status: 504 });
   }
-  return NextResponse.json({ error: firstError ?? "Gemini didn't respond. Try again." }, { status: 502 });
+  return NextResponse.json({ error: firstError ?? "Gemini didn't respond. Try again.", detail }, { status: 502 });
 }
