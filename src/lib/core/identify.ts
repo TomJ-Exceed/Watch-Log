@@ -32,7 +32,13 @@ export function rankFlashModels(models: ModelInfo[]): string[] {
   ok.sort((a, b) => Number(preview(a)) - Number(preview(b)) || version(b) - version(a) || a.length - b.length);
   const stable = ok.filter((n) => !preview(n));
   const previews = ok.filter(preview);
-  return [...new Set([...stable.slice(0, 2), "gemini-flash-latest", ...previews.slice(0, 1)])];
+  // Flash-Lite as the last resort: less accurate on references, but fast and rarely overloaded.
+  const lite = models
+    .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+    .map((m) => m.name.replace(/^models\//, ""))
+    .filter((n) => /^gemini-[\d.]+-flash-lite$/.test(n))
+    .sort((a, b) => version(b) - version(a));
+  return [...new Set([...stable.slice(0, 2), "gemini-flash-latest", ...previews.slice(0, 1), ...lite.slice(0, 1)])];
 }
 
 /** Settings that switch off (or minimise) "thinking" tokens; Gemini 3+ uses thinkingLevel. */

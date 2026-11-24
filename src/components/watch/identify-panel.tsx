@@ -42,7 +42,7 @@ export function IdentifyPanel({ enabled, existingPhoto, onNewPhoto, onPick }: Pr
     setResult(null);
     setPicked(null);
     try {
-      const jpeg = await compressImage(source, 1024, 0.8);
+      const jpeg = await compressImage(source, 768, 0.8);
       const image = await toBase64(jpeg);
       const { res, json } = await callIdentify(image);
       if (!res.ok) return setError({ text: json.error ?? "Couldn't identify the watch.", settings: json.code === "no_key" || json.code === "bad_key", detail: json.detail });

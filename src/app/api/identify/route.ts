@@ -8,19 +8,22 @@ export const maxDuration = 60;
 const API = "https://generativelanguage.googleapis.com/v1beta";
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const TOTAL_BUDGET_MS = 50_000; // stay under maxDuration so we always answer with JSON
-const CALL_TIMEOUT_MS = 25_000;
+const CALL_TIMEOUT_MS = 20_000;
+const HEDGE_MS = 7_000; // if the first model hasn't answered by now, start a second one in parallel
 const CACHE_MS = 6 * 60 * 60 * 1000;
 
 type Thinking = Record<string, unknown> | null;
 type Combo = { model: string; thinking: Thinking; schema: boolean };
+type GeminiReply = { candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[]; error?: GeminiError };
 
-// Per-key memory (per warm server instance) of the model list and the settings that worked,
-// so repeat calls are a single Gemini request instead of a model lookup + trial and error.
+// Per-key memory (per warm server instance) so repeat calls skip the model lookup and trial and error.
 const modelCache = new Map<string, { models: string[]; at: number }>();
 const winner = new Map<string, { combo: Combo; at: number }>();
-// Thinking settings a model has rejected ("Thinking level MINIMAL is not supported…"), so we skip them next time.
+const slow = new Map<string, number>(); // keyId|model → when it last timed out or was overloaded
+// Thinking settings a model has rejected ("Thinking level MINIMAL is not supported…").
 const rejectedThinking = new Set<string>();
 const fresh = (at: number) => Date.now() - at < CACHE_MS;
+const SLOW_MS = 30 * 60 * 1000;
 
 async function availableModels(key: string, keyId: string) {
   const hit = modelCache.get(keyId);
@@ -47,7 +50,8 @@ export async function POST(req: Request) {
 
   const { data: key } = await supabase.rpc("get_gemini_key");
   if (!key) return NextResponse.json({ error: "Add your Gemini API key in Settings to use Identify.", code: "no_key" }, { status: 400 });
-  const keyId = createHash("sha256").update(key).digest("hex").slice(0, 16);
+  const apiKey: string = key;
+  const keyId = createHash("sha256").update(apiKey).digest("hex").slice(0, 16);
 
   let image: string;
   try {
@@ -69,110 +73,165 @@ export async function POST(req: Request) {
     },
   });
 
-  // Attempt order: last known-good settings first, then each model's preferred settings,
-  // ending with a schema-free request as a last resort.
-  const attempts: Combo[] = [];
+  // Model order: last winner first; models that were recently slow/overloaded for this key go last.
+  const isSlow = (m: string) => { const t = slow.get(`${keyId}|${m}`); return t !== undefined && Date.now() - t < SLOW_MS; };
   const known = winner.get(keyId);
-  if (known && fresh(known.at)) attempts.push(known.combo);
-  for (const model of await availableModels(key, keyId)) {
-    for (const thinking of thinkingConfigs(model)) attempts.push({ model, thinking, schema: true });
-    attempts.push({ model, thinking: null, schema: false });
-  }
+  let models = await availableModels(key, keyId);
+  if (known && fresh(known.at)) models = [known.combo.model, ...models.filter((m) => m !== known.combo.model)];
+  models = [...models.filter((m) => !isSlow(m)), ...models.filter(isSlow)];
 
+  const combosFor = (model: string): Combo[] => {
+    const list: Combo[] = [];
+    if (known && fresh(known.at) && known.combo.model === model) list.push(known.combo);
+    for (const thinking of thinkingConfigs(model)) list.push({ model, thinking, schema: true });
+    list.push({ model, thinking: null, schema: false });
+    return list;
+  };
+
+  // Shared state across the parallel lanes.
   let firstError: string | null = null;
   let quota: string | null = null;
-  let timedOut = false;
   let serverError: string | null = null;
-  const skipModels = new Set<string>();
-  const tried = new Set<string>();
-  const retried5xx = new Set<string>();
-  const trail: string[] = []; // e.g. "3.8-flash 503" — shown small under errors so screenshots are diagnosable
-  const note = (model: string, what: string | number) => trail.push(`${model.replace(/^gemini-/, "")} ${what}`);
+  let timedOut = false;
+  let fatal: NextResponse | null = null;
+  let done = false;
+  const controllers = new Set<AbortController>();
+  const trail: string[] = []; // e.g. "3.8-flash 200 4.1s" — shown under errors so screenshots are diagnosable
+  const note = (model: string, what: string | number, t0: number) => {
+    const secs = (Date.now() - t0) / 1000;
+    trail.push(`${model.replace(/^gemini-/, "")} ${what}${secs >= 1 ? ` ${secs.toFixed(0)}s` : ""}`);
+  };
+  const queue = [...models];
+  const markSlow = (m: string) => slow.set(`${keyId}|${m}`, Date.now());
 
-  for (let i = 0; i < attempts.length; i++) {
-    const combo = attempts[i];
-    const sig = JSON.stringify(combo);
-    if (tried.has(sig) || skipModels.has(combo.model)) continue;
-    if (combo.thinking && rejectedThinking.has(combo.model + JSON.stringify(combo.thinking))) continue;
-    tried.add(sig);
-    const remaining = TOTAL_BUDGET_MS - (Date.now() - started);
-    if (remaining < 4000) { timedOut = true; break; }
+  /** Try one model through its settings; returns a result, or null to move on to the next model. */
+  async function tryModel(model: string): Promise<NextResponse | null> {
+    const tried = new Set<string>();
+    let retried5xx = false;
+    const combos = combosFor(model);
+    for (let i = 0; i < combos.length && !done; i++) {
+      const combo = combos[i];
+      const sig = JSON.stringify(combo);
+      if (tried.has(sig)) continue;
+      if (combo.thinking && rejectedThinking.has(model + JSON.stringify(combo.thinking))) continue;
+      tried.add(sig);
+      const remaining = TOTAL_BUDGET_MS - (Date.now() - started);
+      if (remaining < 4000) { timedOut = true; return null; }
 
-    let res: Response | null = null;
-    try {
-      res = await fetch(`${API}/models/${combo.model}:generateContent`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-        body: JSON.stringify(body(combo)),
-        signal: AbortSignal.timeout(Math.min(CALL_TIMEOUT_MS, remaining - 2000)),
-      });
-    } catch (e) {
-      note(combo.model, "timeout");
-      if ((e as Error).name === "TimeoutError" || (e as Error).name === "AbortError") timedOut = true;
-      else firstError ??= "Couldn't reach Gemini. Try again.";
-      skipModels.add(combo.model); // a slow/unreachable model won't get faster on retry
-      continue;
-    }
-
-    const json = (await res.json().catch(() => ({}))) as {
-      candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[];
-      error?: GeminiError;
-    };
-    if (res.ok) {
-      const text = json.candidates?.[0]?.content?.parts?.filter((p) => !p.thought).map((p) => p.text ?? "").join("") ?? "";
+      const ctrl = new AbortController();
+      controllers.add(ctrl);
+      const timer = setTimeout(() => ctrl.abort(new DOMException("timeout", "TimeoutError")), Math.min(CALL_TIMEOUT_MS, remaining - 2000));
+      const t0 = Date.now();
+      let res: Response;
+      let json: GeminiReply;
       try {
-        const result = parseIdentify(text);
-        winner.set(keyId, { combo, at: Date.now() });
-        return NextResponse.json(result);
-      } catch {
-        firstError ??= "Gemini returned something unexpected. Try another photo.";
-        continue; // try the next settings (e.g. without schema)
+        res = await fetch(`${API}/models/${model}:generateContent`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+          body: JSON.stringify(body(combo)),
+          signal: ctrl.signal,
+        });
+        json = (await res.json().catch(() => ({}))) as GeminiReply;
+      } catch (e) {
+        if (done) return null; // aborted because another lane won
+        note(model, "timeout", t0);
+        if ((e as Error).name === "TimeoutError" || (e as Error).name === "AbortError") timedOut = true;
+        else firstError ??= "Couldn't reach Gemini. Try again.";
+        markSlow(model);
+        if (known?.combo.model === model) winner.delete(keyId);
+        return null; // a slow model won't get faster on retry
+      } finally {
+        clearTimeout(timer);
+        controllers.delete(ctrl);
       }
-    }
 
-    const msg = json.error?.message ?? `Gemini error ${res.status}`;
-    note(combo.model, res.status);
-    if (/api[_ ]?key/i.test(msg) && (res.status === 400 || res.status === 401)) {
-      return NextResponse.json({ error: "Your Gemini API key was rejected. Update it in Settings.", code: "bad_key" }, { status: 400 });
-    }
-    if (res.status === 403) return NextResponse.json({ error: "Your Gemini key doesn't have access. Check it in Google AI Studio.", code: "bad_key" }, { status: 400 });
-    if (res.status === 429) {
-      // Quotas are per model: note why, then try the next model (it may have free allowance left).
-      quota ??= describeQuota(json.error, combo.model);
-      skipModels.add(combo.model);
-      continue;
-    }
-    if (known && sig === JSON.stringify(known.combo)) winner.delete(keyId);
-    // A 400 about a setting → try the next setting for this model; anything else → skip the model.
-    if (res.status === 400 && combo.thinking && /thinking/i.test(msg)) {
-      // A settings mismatch, not something to show the user — remember it and try the next level.
-      rejectedThinking.add(combo.model + JSON.stringify(combo.thinking));
-      continue;
-    }
-    if (res.status === 400 && !/no longer available|not found|deprecat/i.test(msg)) { firstError ??= msg; continue; }
-    if (res.status >= 500) {
-      // Usually "model overloaded" — transient. Retry the same request once after a short pause,
-      // then move on (other settings / the next Flash model).
-      if (!retried5xx.has(combo.model) && TOTAL_BUDGET_MS - (Date.now() - started) > 10000) {
-        retried5xx.add(combo.model);
-        tried.delete(sig);
-        await new Promise((r) => setTimeout(r, 1500));
-        i--;
+      note(model, res.status, t0);
+      if (res.ok) {
+        const text = json.candidates?.[0]?.content?.parts?.filter((p) => !p.thought).map((p) => p.text ?? "").join("") ?? "";
+        try {
+          const result = parseIdentify(text);
+          winner.set(keyId, { combo, at: Date.now() });
+          slow.delete(`${keyId}|${model}`);
+          return NextResponse.json(result);
+        } catch {
+          firstError ??= "Gemini returned something unexpected. Try another photo.";
+          continue; // try the next settings (e.g. without schema)
+        }
+      }
+
+      const msg = json.error?.message ?? `Gemini error ${res.status}`;
+      if (/api[_ ]?key/i.test(msg) && (res.status === 400 || res.status === 401)) {
+        fatal = NextResponse.json({ error: "Your Gemini API key was rejected. Update it in Settings.", code: "bad_key" }, { status: 400 });
+        return null;
+      }
+      if (res.status === 403) {
+        fatal = NextResponse.json({ error: "Your Gemini key doesn't have access. Check it in Google AI Studio.", code: "bad_key" }, { status: 400 });
+        return null;
+      }
+      if (res.status === 429) {
+        quota ??= describeQuota(json.error, model); // quotas are per model — the next one may have allowance left
+        return null;
+      }
+      if (known && sig === JSON.stringify(known.combo)) winner.delete(keyId);
+      if (res.status === 400 && combo.thinking && /thinking/i.test(msg)) {
+        rejectedThinking.add(model + JSON.stringify(combo.thinking)); // settings mismatch, not a user-facing error
         continue;
       }
-      serverError ??= /overload|unavailable|high demand/i.test(msg)
-        ? "Google's Gemini servers are overloaded right now. Try again in a minute."
-        : "Gemini is having trouble right now. Try again shortly.";
-      if (res.status === 503) skipModels.add(combo.model); // overloaded model: other settings won't help
-      continue;
+      if (res.status === 400 && !/no longer available|not found|deprecat/i.test(msg)) { firstError ??= msg; continue; }
+      if (res.status >= 500) {
+        if (!retried5xx && TOTAL_BUDGET_MS - (Date.now() - started) > 10000) {
+          retried5xx = true;
+          tried.delete(sig);
+          await new Promise((r) => setTimeout(r, 1000));
+          i--;
+          continue;
+        }
+        serverError ??= /overload|unavailable|high demand/i.test(msg)
+          ? "Google's Gemini servers are overloaded right now. Try again in a minute."
+          : "Gemini is having trouble right now. Try again shortly.";
+        if (res.status === 503) { markSlow(model); return null; }
+        continue;
+      }
+      firstError ??= msg;
+      return null;
     }
-    firstError ??= msg;
-    skipModels.add(combo.model);
+    return null;
   }
 
-  const counts = new Map<string, number>();
-  for (const t of trail) counts.set(t, (counts.get(t) ?? 0) + 1);
-  const detail = trail.length ? `Tried: ${[...counts].map(([t, n]) => (n > 1 ? `${t} ×${n}` : t)).join(", ")}` : undefined;
+  /** A lane pulls models off the shared queue until one succeeds or the queue is empty. */
+  async function lane(): Promise<NextResponse | null> {
+    while (!done && !fatal && queue.length) {
+      const r = await tryModel(queue.shift()!);
+      if (r) return r;
+    }
+    return null;
+  }
+
+  // Hedged race: lane A starts now; lane B starts after HEDGE_MS, or as soon as lane A's first
+  // model fails fast. First success wins and cancels the rest. Quick answers cost one request.
+  const result = await new Promise<NextResponse | null>((resolve) => {
+    let running = 0;
+    let startedB = false;
+    const finish = (r: NextResponse | null) => {
+      if (r && !done) { done = true; controllers.forEach((c) => c.abort()); resolve(r); return; }
+      if (--running === 0 && (startedB || !queue.length || fatal)) resolve(null);
+      else if (!startedB && !done && !fatal && queue.length) startB(); // A finished without success before the hedge fired
+    };
+    const startB = () => {
+      if (startedB || done) return;
+      startedB = true;
+      clearTimeout(hedge);
+      running++;
+      void lane().then(finish);
+    };
+    running++;
+    void lane().then(finish);
+    const hedge = setTimeout(startB, HEDGE_MS);
+  });
+
+  if (result) return result;
+  if (fatal) return fatal;
+  const detail = trail.length ? `Tried: ${trail.join(", ")}` : undefined;
   if (quota && !firstError) return NextResponse.json({ error: quota, code: "quota", detail }, { status: 429 });
   if (serverError && !firstError) return NextResponse.json({ error: serverError, code: "unavailable", detail }, { status: 503 });
   if (timedOut && !firstError) {
